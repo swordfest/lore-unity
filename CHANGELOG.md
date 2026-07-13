@@ -5,6 +5,23 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-07-13
+
+### Added
+- Pestañas en la ventana: Trabajo / Historial / Merge.
+- Historial: timeline de revisiones (número, mensaje, fecha, autor); al
+  seleccionar una entrada se ve el mensaje completo y la firma con botón Copiar.
+- Merge: selección de branch origen con indicación clara de la dirección
+  (origen → branch actual), previsualización con "Ver diferencias" y
+  "Simular (dry-run)", y ejecución con mensaje personalizado.
+- Resolución de conflictos: lista de archivos en conflicto con botones por
+  archivo "Local (mío)" / "Remoto (suyo)", resolución masiva, finalizar
+  merge (commit) y abortar merge, todo con diálogos de confirmación.
+
+### Fixed
+- El campo de mensaje de commit ahora se limpia de verdad tras
+  Stage + Commit (+ Push) — antes el foco de IMGUI retenía el texto.
+
 ## [1.2.0] - 2026-07-12
 
 ### Added

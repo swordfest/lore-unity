@@ -24,6 +24,18 @@ jobs:
         with:
           ref: ${{ steps.tag.outputs.tag }}
 
+      - name: Verificar versiones
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          PKG_VERSION=$(python3 -c "import json; print(json.load(open('package.json'))['version'])")
+          if [ "$PKG_VERSION" != "$TAG" ]; then
+            echo "::error::package.json version ($PKG_VERSION) does not match tag ($TAG). Bump it before tagging."
+            exit 1
+          fi
+          if ! grep -q "#$TAG" README.md; then
+            echo "::warning::README.md does not mention #$TAG in the install URL — remember to update it."
+          fi
+
       - name: Extraer sección del CHANGELOG
         run: |
           TAG="${{ steps.tag.outputs.tag }}"

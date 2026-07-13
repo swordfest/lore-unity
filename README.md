@@ -38,7 +38,7 @@ Lore server itself — without leaving Unity.
 **Git URL** — Package Manager → `+` → *Install package from git URL*:
 
 ```
-https://github.com/swordfest/lore-unity.git#1.2.0
+https://github.com/swordfest/lore-unity.git#1.4.0
 ```
 
 **Tarball** — Package Manager → `+` → *Install package from tarball*.

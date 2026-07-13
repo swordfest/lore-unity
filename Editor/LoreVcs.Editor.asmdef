@@ -1,5 +1,5 @@
 {
-    "name": "YareyTech.Lore.Editor",
+    "name": "LoreVcs.Editor",
     "rootNamespace": "LoreVcs",
     "references": [],
     "includePlatforms": [

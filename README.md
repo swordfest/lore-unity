@@ -83,7 +83,7 @@ manual.
 
 ## License
 
-[MIT](LICENSE.md) — © 2026 Yarey Tech, Alexander Navarro.
+[MIT](LICENSE.md) — © 2026 Alex Navarro.
 
 Lore is a trademark of Epic Games, Inc. This package is an independent,
 community-made integration and is not affiliated with or endorsed by Epic Games.

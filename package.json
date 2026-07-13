@@ -1,5 +1,5 @@
 {
-  "name": "com.alexnavarro.lore",
+  "name": "com.swordfest.lore",
   "version": "1.2.0",
   "displayName": "Lore VCS",
   "description": "Integración del sistema de control de versiones Lore (Epic Games) en el editor de Unity. Panel en Window > Lore con status, stage + commit, push, sync y manejo de branches, envolviendo el CLI de lore.",

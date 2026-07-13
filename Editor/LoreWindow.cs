@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace LoreVcs
 {
-    /// <summary>Una entrada del historial de revisiones.</summary>
+    /// <summary>A single revision entry from the history.</summary>
     internal class LoreHistoryEntry
     {
         public string Revision = "";
@@ -18,15 +18,15 @@ namespace LoreVcs
     }
 
     /// <summary>
-    /// Panel de control de Lore VCS dentro del editor de Unity.
-    /// Window → Lore. Pestañas: Trabajo (status/commit/sync/servidor),
-    /// Historial (timeline de revisiones) y Merge (con manejo de conflictos).
+    /// Lore VCS control panel inside the Unity editor.
+    /// Window → Lore. Tabs: Work (status/commit/sync/server),
+    /// History (revision timeline) and Merge (with conflict resolution).
     /// </summary>
     public class LoreWindow : EditorWindow
     {
-        private static readonly string[] TabNames = { "Trabajo", "Historial", "Merge" };
+        private static readonly string[] TabNames = { "Work", "History", "Merge" };
 
-        // Estado del repo
+        // Repo state
         private string _branch = "?";
         private string _revision = "?";
         private string _syncState = "";
@@ -36,11 +36,12 @@ namespace LoreVcs
         private string[] _branches = Array.Empty<string>();
         private int _branchIndex = -1;
         private string _newBranchName = "";
+        private int _newBranchSourceIndex = -1;
 
         // Commit
         private string _commitMessage = "";
 
-        // Historial
+        // History
         private readonly List<LoreHistoryEntry> _history = new List<LoreHistoryEntry>();
         private bool _historyLoaded;
         private int _selectedHistory = -1;
@@ -53,7 +54,7 @@ namespace LoreVcs
         private readonly List<string> _conflicts = new List<string>();
         private Vector2 _mergeScroll;
 
-        // Servidor
+        // Server
         private bool _serverHealthy;
         private bool _serverCheckDone;
         private string _serverHost = "?";
@@ -98,7 +99,7 @@ namespace LoreVcs
 
         private void Update()
         {
-            // Re-chequear la salud del servidor cada 30 s mientras la ventana esté abierta.
+            // Re-check server health every 30 s while the window is open.
             if (EditorApplication.timeSinceStartup - _lastServerCheck > 30)
                 RefreshServerStatus();
         }
@@ -149,7 +150,7 @@ namespace LoreVcs
             EditorGUILayout.EndHorizontal();
         }
 
-        // ------------------------------------------------------ Pestaña Trabajo
+        // ----------------------------------------------------------- Work tab
 
         private void DrawWorkTab()
         {
@@ -178,24 +179,36 @@ namespace LoreVcs
             }
             EditorGUILayout.EndHorizontal();
 
+            EditorGUILayout.LabelField("New branch", EditorStyles.miniBoldLabel);
+
+            if (_newBranchSourceIndex < 0 || _newBranchSourceIndex >= _branches.Length)
+                _newBranchSourceIndex = _branchIndex;
+            _newBranchSourceIndex = EditorGUILayout.Popup(
+                "From branch", _newBranchSourceIndex, _branches);
+
             EditorGUILayout.BeginHorizontal();
             _newBranchName = EditorGUILayout.TextField(_newBranchName);
             using (new EditorGUI.DisabledScope(string.IsNullOrWhiteSpace(_newBranchName)))
             {
-                if (GUILayout.Button("Crear y cambiar", GUILayout.Width(120)))
-                    CreateBranch(_newBranchName.Trim());
+                if (GUILayout.Button("Create & switch", GUILayout.Width(110)))
+                {
+                    var sourceOk = _newBranchSourceIndex >= 0 &&
+                                   _newBranchSourceIndex < _branches.Length;
+                    var source = sourceOk ? _branches[_newBranchSourceIndex] : _branch;
+                    CreateBranch(_newBranchName.Trim(), source);
+                }
             }
             EditorGUILayout.EndHorizontal();
         }
 
         private void DrawChanges()
         {
-            EditorGUILayout.LabelField($"Cambios ({_changes.Count})", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField($"Changes ({_changes.Count})", EditorStyles.boldLabel);
             _changesScroll = EditorGUILayout.BeginScrollView(
                 _changesScroll, GUILayout.MinHeight(90), GUILayout.MaxHeight(160));
             if (_changes.Count == 0)
             {
-                EditorGUILayout.LabelField("Sin cambios locales.", EditorStyles.miniLabel);
+                EditorGUILayout.LabelField("No local changes.", EditorStyles.miniLabel);
             }
             else
             {
@@ -231,7 +244,7 @@ namespace LoreVcs
 
         private void DrawServer()
         {
-            EditorGUILayout.LabelField("Servidor", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Server", EditorStyles.boldLabel);
 
             EditorGUILayout.BeginHorizontal();
             var dot = !_serverCheckDone ? "…" : (_serverHealthy ? "●" : "○");
@@ -239,11 +252,11 @@ namespace LoreVcs
             GUI.color = !_serverCheckDone ? Color.gray : (_serverHealthy ? Color.green : Color.red);
             GUILayout.Label(dot, GUILayout.Width(14));
             GUI.color = color;
-            var stateText = !_serverCheckDone ? "comprobando…"
-                : (_serverHealthy ? "online" : "sin respuesta");
+            var stateText = !_serverCheckDone ? "checking…"
+                : (_serverHealthy ? "online" : "no response");
             GUILayout.Label($"{_serverHost}:41337 — {stateText}", EditorStyles.miniLabel);
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Comprobar", EditorStyles.miniButton, GUILayout.Width(80)))
+            if (GUILayout.Button("Check", EditorStyles.miniButton, GUILayout.Width(60)))
                 RefreshServerStatus();
             EditorGUILayout.EndHorizontal();
 
@@ -254,7 +267,7 @@ namespace LoreVcs
                 EditorGUILayout.BeginHorizontal();
                 using (new EditorGUI.DisabledScope(running))
                 {
-                    if (GUILayout.Button("Iniciar servidor"))
+                    if (GUILayout.Button("Start server"))
                     {
                         AppendLog(LoreServerController.StartServer());
                         RefreshServerStatus(delaySeconds: 2);
@@ -262,12 +275,12 @@ namespace LoreVcs
                 }
                 using (new EditorGUI.DisabledScope(!running))
                 {
-                    if (GUILayout.Button("Detener servidor"))
+                    if (GUILayout.Button("Stop server"))
                     {
-                        if (EditorUtility.DisplayDialog("Detener loreserver",
-                            "¿Detener el servidor de Lore de esta máquina?\n" +
-                            "Los demás equipos no podrán hacer sync/push hasta reiniciarlo.",
-                            "Detener", "Cancelar"))
+                        if (EditorUtility.DisplayDialog("Stop loreserver",
+                            "Stop the Lore server on this machine?\n" +
+                            "Other machines won't be able to sync/push until it restarts.",
+                            "Stop", "Cancel"))
                         {
                             AppendLog(LoreServerController.StopServer());
                             RefreshServerStatus(delaySeconds: 1);
@@ -276,21 +289,21 @@ namespace LoreVcs
                 }
                 EditorGUILayout.EndHorizontal();
 
-                // Direcciones en las que el servidor queda expuesto (escucha en 0.0.0.0),
-                // listas para compartir con los demás equipos.
+                // Addresses the server is exposed on (it listens on 0.0.0.0),
+                // ready to share with teammates.
                 if (running && _localIps.Count > 0)
                 {
-                    EditorGUILayout.LabelField("Direcciones para compartir:", EditorStyles.miniBoldLabel);
+                    EditorGUILayout.LabelField("Shareable addresses:", EditorStyles.miniBoldLabel);
                     foreach (var ip in _localIps)
                     {
                         var url = $"lore://{ip}:41337/{_repoName}";
                         EditorGUILayout.BeginHorizontal();
                         EditorGUILayout.SelectableLabel(url, EditorStyles.miniLabel,
                             GUILayout.Height(16));
-                        if (GUILayout.Button("Copiar", EditorStyles.miniButton, GUILayout.Width(60)))
+                        if (GUILayout.Button("Copy", EditorStyles.miniButton, GUILayout.Width(50)))
                         {
                             EditorGUIUtility.systemCopyBuffer = url;
-                            AppendLog($"Copiado al portapapeles: {url}");
+                            AppendLog($"Copied to clipboard: {url}");
                         }
                         EditorGUILayout.EndHorizontal();
                     }
@@ -299,58 +312,58 @@ namespace LoreVcs
             else if (LoreServerController.RepoServerIsLocal())
             {
                 EditorGUILayout.HelpBox(
-                    "El repo apunta a un servidor local pero loreserver no está instalado " +
-                    "en esta máquina. Configura su ruta en ⚙ Ajustes.",
+                    "This repo points at a local server but loreserver is not installed " +
+                    "on this machine. Configure its path under ⚙ Settings.",
                     MessageType.Warning);
             }
-            // Si el servidor es remoto y no hay binario local, solo se muestra el estado.
+            // Remote server with no local binary: only the status row is shown.
         }
 
         private void DrawSettings()
         {
-            _showSettings = EditorGUILayout.Foldout(_showSettings, "⚙ Ajustes");
+            _showSettings = EditorGUILayout.Foldout(_showSettings, "⚙ Settings");
             if (!_showSettings) return;
 
             EditorGUILayout.BeginHorizontal();
-            _cliPathField = EditorGUILayout.TextField("Ruta del CLI", _cliPathField);
-            if (GUILayout.Button("Guardar", GUILayout.Width(70)))
+            _cliPathField = EditorGUILayout.TextField("CLI path", _cliPathField);
+            if (GUILayout.Button("Save", GUILayout.Width(60)))
             {
                 LoreCli.ConfiguredCliPath = _cliPathField;
-                AppendLog($"CLI configurado: {(string.IsNullOrEmpty(_cliPathField) ? "(autodetectar)" : _cliPathField)}");
+                AppendLog($"CLI path set: {(string.IsNullOrEmpty(_cliPathField) ? "(auto-detect)" : _cliPathField)}");
             }
             EditorGUILayout.EndHorizontal();
-            EditorGUILayout.LabelField($"En uso: {LoreCli.ResolveCliPath()}", EditorStyles.miniLabel);
+            EditorGUILayout.LabelField($"In use: {LoreCli.ResolveCliPath()}", EditorStyles.miniLabel);
 
             EditorGUILayout.BeginHorizontal();
-            _serverPathField = EditorGUILayout.TextField("Ruta loreserver", _serverPathField);
-            if (GUILayout.Button("Guardar", GUILayout.Width(70)))
+            _serverPathField = EditorGUILayout.TextField("loreserver path", _serverPathField);
+            if (GUILayout.Button("Save", GUILayout.Width(60)))
             {
                 LoreServerController.ConfiguredServerPath = _serverPathField;
-                AppendLog("Ruta de loreserver guardada.");
+                AppendLog("loreserver path saved.");
             }
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.BeginHorizontal();
-            _serverConfigField = EditorGUILayout.TextField("Config del server", _serverConfigField);
-            if (GUILayout.Button("Guardar", GUILayout.Width(70)))
+            _serverConfigField = EditorGUILayout.TextField("Server config dir", _serverConfigField);
+            if (GUILayout.Button("Save", GUILayout.Width(60)))
             {
                 LoreServerController.ConfiguredServerConfigDir = _serverConfigField;
-                AppendLog("Directorio de config del servidor guardado.");
+                AppendLog("Server config directory saved.");
             }
             EditorGUILayout.EndHorizontal();
 
-            var resolvedServer = LoreServerController.ResolveServerPath() ?? "(no instalado en esta máquina)";
+            var resolvedServer = LoreServerController.ResolveServerPath() ?? "(not installed on this machine)";
             EditorGUILayout.LabelField($"loreserver: {resolvedServer}", EditorStyles.miniLabel);
         }
 
-        // ---------------------------------------------------- Pestaña Historial
+        // -------------------------------------------------------- History tab
 
         private void DrawHistoryTab()
         {
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField($"Historial ({_history.Count} revisiones)", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField($"History ({_history.Count} revisions)", EditorStyles.boldLabel);
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Recargar", EditorStyles.miniButton, GUILayout.Width(70)))
+            if (GUILayout.Button("Reload", EditorStyles.miniButton, GUILayout.Width(60)))
                 RefreshHistory();
             EditorGUILayout.EndHorizontal();
 
@@ -383,10 +396,10 @@ namespace LoreVcs
                     EditorGUILayout.BeginHorizontal();
                     EditorGUILayout.SelectableLabel(entry.Signature, EditorStyles.miniLabel,
                         GUILayout.Height(16));
-                    if (GUILayout.Button("Copiar firma", EditorStyles.miniButton, GUILayout.Width(90)))
+                    if (GUILayout.Button("Copy signature", EditorStyles.miniButton, GUILayout.Width(100)))
                     {
                         EditorGUIUtility.systemCopyBuffer = entry.Signature;
-                        AppendLog($"Firma de #{entry.Revision} copiada.");
+                        AppendLog($"Signature of #{entry.Revision} copied.");
                     }
                     EditorGUILayout.EndHorizontal();
                 }
@@ -396,12 +409,12 @@ namespace LoreVcs
             }
 
             if (_history.Count == 0 && _historyLoaded)
-                EditorGUILayout.LabelField("Sin revisiones.", EditorStyles.miniLabel);
+                EditorGUILayout.LabelField("No revisions.", EditorStyles.miniLabel);
 
             EditorGUILayout.EndScrollView();
         }
 
-        // -------------------------------------------------------- Pestaña Merge
+        // ---------------------------------------------------------- Merge tab
 
         private void DrawMergeTab()
         {
@@ -418,7 +431,7 @@ namespace LoreVcs
             if (otherBranches.Length == 0)
             {
                 EditorGUILayout.HelpBox(
-                    "No hay otras branches para mergear. Crea una en la pestaña Trabajo.",
+                    "No other branches to merge. Create one in the Work tab.",
                     MessageType.Info);
                 EditorGUILayout.EndScrollView();
                 return;
@@ -427,22 +440,23 @@ namespace LoreVcs
             EditorGUILayout.LabelField("Merge", EditorStyles.boldLabel);
 
             _mergeSourceIndex = Mathf.Clamp(_mergeSourceIndex, 0, otherBranches.Length - 1);
-            _mergeSourceIndex = EditorGUILayout.Popup("Branch origen", _mergeSourceIndex, otherBranches);
+            _mergeSourceIndex = EditorGUILayout.Popup("Source branch", _mergeSourceIndex, otherBranches);
             var source = otherBranches[_mergeSourceIndex];
 
             EditorGUILayout.HelpBox(
-                $"Se mergeará  {source}  →  {_branch}  (tu branch actual).\n" +
-                "Los cambios de la branch origen se traen a la actual; la origen no se modifica.",
+                $"This will merge  {source}  →  {_branch}  (your current branch).\n" +
+                "Changes from the source branch are brought into the current one; " +
+                "the source branch is not modified.",
                 MessageType.Info);
 
             if (string.IsNullOrEmpty(_mergeMessage))
                 _mergeMessage = $"Merge {source} into {_branch}";
-            _mergeMessage = EditorGUILayout.TextField("Mensaje", _mergeMessage);
+            _mergeMessage = EditorGUILayout.TextField("Message", _mergeMessage);
 
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("Ver diferencias"))
+            if (GUILayout.Button("View differences"))
                 ShowBranchDiff(source);
-            if (GUILayout.Button("Simular (dry-run)"))
+            if (GUILayout.Button("Simulate (dry-run)"))
                 MergeDryRun(source);
             EditorGUILayout.EndHorizontal();
 
@@ -451,9 +465,9 @@ namespace LoreVcs
 
             EditorGUILayout.Space(6);
             EditorGUILayout.LabelField(
-                "Si el merge encuentra conflictos, esta pestaña cambiará al modo de " +
-                "resolución donde eliges archivo por archivo entre tu versión (local) " +
-                "o la de la otra branch (remota).",
+                "If the merge hits conflicts, this tab switches to resolution mode " +
+                "where you choose file by file between your version (local) or the " +
+                "other branch's version (remote).",
                 EditorStyles.wordWrappedMiniLabel);
 
             EditorGUILayout.EndScrollView();
@@ -462,14 +476,14 @@ namespace LoreVcs
         private void DrawMergeConflicts()
         {
             EditorGUILayout.HelpBox(
-                "Merge con conflictos en curso. Resuelve cada archivo eligiendo qué " +
-                "versión conservar, y después finaliza o aborta el merge.",
+                "Merge with conflicts in progress. Resolve each file by choosing " +
+                "which version to keep, then finish or abort the merge.",
                 MessageType.Warning);
 
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField($"Conflictos ({_conflicts.Count})", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField($"Conflicts ({_conflicts.Count})", EditorStyles.boldLabel);
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Recargar", EditorStyles.miniButton, GUILayout.Width(70)))
+            if (GUILayout.Button("Reload", EditorStyles.miniButton, GUILayout.Width(60)))
                 RefreshConflicts();
             EditorGUILayout.EndHorizontal();
 
@@ -477,42 +491,42 @@ namespace LoreVcs
             {
                 EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
                 EditorGUILayout.LabelField(path, EditorStyles.miniLabel);
-                if (GUILayout.Button("Local (mío)", EditorStyles.miniButton, GUILayout.Width(85)))
+                if (GUILayout.Button("Local (mine)", EditorStyles.miniButton, GUILayout.Width(85)))
                     ResolveConflict(path, mine: true);
-                if (GUILayout.Button("Remoto (suyo)", EditorStyles.miniButton, GUILayout.Width(95)))
+                if (GUILayout.Button("Remote (theirs)", EditorStyles.miniButton, GUILayout.Width(100)))
                     ResolveConflict(path, mine: false);
                 EditorGUILayout.EndHorizontal();
             }
 
             EditorGUILayout.Space(4);
-            EditorGUILayout.LabelField("Resolución masiva:", EditorStyles.miniBoldLabel);
+            EditorGUILayout.LabelField("Bulk resolution:", EditorStyles.miniBoldLabel);
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("Todo local (mío)"))
+            if (GUILayout.Button("All local (mine)"))
             {
-                if (EditorUtility.DisplayDialog("Resolver todo con lo local",
-                    "¿Conservar TU versión en todos los archivos en conflicto?",
-                    "Sí, todo local", "Cancelar"))
+                if (EditorUtility.DisplayDialog("Resolve all with local",
+                    "Keep YOUR version for every conflicted file?",
+                    "Yes, all local", "Cancel"))
                     ResolveConflict(".", mine: true);
             }
-            if (GUILayout.Button("Todo remoto (suyo)"))
+            if (GUILayout.Button("All remote (theirs)"))
             {
-                if (EditorUtility.DisplayDialog("Resolver todo con lo remoto",
-                    "¿Conservar la versión de la OTRA branch en todos los archivos en conflicto?",
-                    "Sí, todo remoto", "Cancelar"))
+                if (EditorUtility.DisplayDialog("Resolve all with remote",
+                    "Keep the OTHER branch's version for every conflicted file?",
+                    "Yes, all remote", "Cancel"))
                     ResolveConflict(".", mine: false);
             }
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.Space(6);
-            _mergeMessage = EditorGUILayout.TextField("Mensaje del merge", _mergeMessage);
+            _mergeMessage = EditorGUILayout.TextField("Merge message", _mergeMessage);
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("Finalizar merge (commit)", GUILayout.Height(26)))
+            if (GUILayout.Button("Finish merge (commit)", GUILayout.Height(26)))
                 FinishMerge();
-            if (GUILayout.Button("Abortar merge", GUILayout.Height(26)))
+            if (GUILayout.Button("Abort merge", GUILayout.Height(26)))
             {
-                if (EditorUtility.DisplayDialog("Abortar merge",
-                    "¿Descartar el merge en curso y volver al estado anterior?",
-                    "Abortar", "Cancelar"))
+                if (EditorUtility.DisplayDialog("Abort merge",
+                    "Discard the merge in progress and return to the previous state?",
+                    "Abort", "Cancel"))
                     AbortMerge();
             }
             EditorGUILayout.EndHorizontal();
@@ -521,13 +535,13 @@ namespace LoreVcs
         private void DrawLog()
         {
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField("Salida", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Output", EditorStyles.boldLabel);
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Limpiar", EditorStyles.miniButton, GUILayout.Width(60)))
+            if (GUILayout.Button("Clear", EditorStyles.miniButton, GUILayout.Width(50)))
                 _log = "";
             EditorGUILayout.EndHorizontal();
 
-            // Ocupa todo el alto restante de la ventana.
+            // Fills all remaining window height.
             _logScroll = EditorGUILayout.BeginScrollView(
                 _logScroll, GUILayout.MinHeight(150), GUILayout.ExpandHeight(true));
             EditorGUILayout.TextArea(_log, EditorStyles.wordWrappedMiniLabel,
@@ -535,12 +549,12 @@ namespace LoreVcs
             EditorGUILayout.EndScrollView();
         }
 
-        // ------------------------------------------------------------ Acciones
+        // ------------------------------------------------------------ Actions
 
         private async void RefreshAll()
         {
             if (_busy) return;
-            SetBusy("Consultando estado…");
+            SetBusy("Querying status…");
             try
             {
                 var status = await LoreCli.RunAsync("status");
@@ -563,7 +577,7 @@ namespace LoreVcs
 
         private async void RefreshHistory()
         {
-            SetBusy("Cargando historial…");
+            SetBusy("Loading history…");
             try
             {
                 var result = await LoreCli.RunAsync("history");
@@ -581,8 +595,8 @@ namespace LoreVcs
 
         private async void Sync()
         {
-            if (!SaveProjectBeforeVcsOperation("sincronizar")) return;
-            SetBusy("Sync en curso…");
+            if (!SaveProjectBeforeVcsOperation("sync")) return;
+            SetBusy("Sync in progress…");
             try
             {
                 var result = await LoreCli.RunAsync("sync");
@@ -599,7 +613,7 @@ namespace LoreVcs
 
         private async void Push()
         {
-            SetBusy("Push en curso…");
+            SetBusy("Push in progress…");
             try
             {
                 var result = await LoreCli.RunAsync("push");
@@ -614,11 +628,11 @@ namespace LoreVcs
 
         private async void StageAndCommit(bool pushAfter = false)
         {
-            if (!SaveProjectBeforeVcsOperation("commitear")) return;
+            if (!SaveProjectBeforeVcsOperation("commit")) return;
             SetBusy("Stage + commit…");
             try
             {
-                // El .loreignore del repo filtra Library/, Temp/, etc.
+                // The repo's .loreignore filters Library/, Temp/, etc.
                 var stage = await LoreCli.RunAsync("stage", "--scan", ".");
                 AppendLog(stage.Combined);
                 if (!stage.Success) return;
@@ -645,8 +659,8 @@ namespace LoreVcs
 
         private async void SwitchBranch(string branch)
         {
-            if (!SaveProjectBeforeVcsOperation($"cambiar a la branch '{branch}'")) return;
-            SetBusy($"Cambiando a {branch}…");
+            if (!SaveProjectBeforeVcsOperation($"switch to branch '{branch}'")) return;
+            SetBusy($"Switching to {branch}…");
             try
             {
                 var result = await LoreCli.RunAsync("branch", "switch", branch);
@@ -661,17 +675,38 @@ namespace LoreVcs
             }
         }
 
-        private async void CreateBranch(string branch)
+        /// <summary>
+        /// Creates a branch starting from <paramref name="source"/>. Lore always
+        /// branches off the current branch, so if the source differs from the
+        /// current one we switch there first, then create and switch to the new branch.
+        /// </summary>
+        private async void CreateBranch(string branch, string source)
         {
-            SetBusy($"Creando branch {branch}…");
+            if (!SaveProjectBeforeVcsOperation($"create branch '{branch}' from '{source}'"))
+                return;
+
+            SetBusy($"Creating branch {branch} from {source}…");
             try
             {
+                if (source != _branch)
+                {
+                    var sw = await LoreCli.RunAsync("branch", "switch", source);
+                    AppendLog(sw.Combined);
+                    if (!sw.Success)
+                    {
+                        AppendLog($"Could not switch to source branch '{source}'; branch not created.");
+                        return;
+                    }
+                    AssetDatabase.Refresh();
+                }
+
                 var create = await LoreCli.RunAsync("branch", "create", branch);
                 AppendLog(create.Combined);
                 if (create.Success)
                 {
                     var sw = await LoreCli.RunAsync("branch", "switch", branch);
                     AppendLog(sw.Combined);
+                    AppendLog($"Branch '{branch}' created from '{source}'.");
                     _newBranchName = "";
                     AssetDatabase.Refresh();
                 }
@@ -683,7 +718,7 @@ namespace LoreVcs
             }
         }
 
-        // ------------------------------------------------------- Acciones merge
+        // ------------------------------------------------------ Merge actions
 
         private async void ShowBranchDiff(string source)
         {
@@ -692,7 +727,7 @@ namespace LoreVcs
             {
                 var result = await LoreCli.RunAsync("branch", "diff", source);
                 AppendLog(result.Success && string.IsNullOrWhiteSpace(result.StdOut)
-                    ? "Sin diferencias entre las branches."
+                    ? "No differences between the branches."
                     : result.Combined);
             }
             finally
@@ -703,7 +738,7 @@ namespace LoreVcs
 
         private async void MergeDryRun(string source)
         {
-            SetBusy("Simulando merge…");
+            SetBusy("Simulating merge…");
             try
             {
                 var result = await LoreCli.RunAsync("branch", "merge", "start", source, "--dry-run");
@@ -717,8 +752,8 @@ namespace LoreVcs
 
         private async void StartMerge(string source)
         {
-            if (!SaveProjectBeforeVcsOperation($"mergear {source}")) return;
-            SetBusy($"Merge {source} → {_branch}…");
+            if (!SaveProjectBeforeVcsOperation($"merge {source}")) return;
+            SetBusy($"Merging {source} → {_branch}…");
             try
             {
                 var result = await LoreCli.RunAsync(
@@ -728,7 +763,7 @@ namespace LoreVcs
 
                 if (result.Success && !LooksLikeConflict(result.Combined))
                 {
-                    AppendLog("Merge completado. Recuerda hacer Push para publicarlo.");
+                    AppendLog("Merge completed. Remember to Push to publish it.");
                     _mergeMessage = "";
                     _historyLoaded = false;
                 }
@@ -747,7 +782,7 @@ namespace LoreVcs
 
         private async void ResolveConflict(string path, bool mine)
         {
-            SetBusy($"Resolviendo {path}…");
+            SetBusy($"Resolving {path}…");
             try
             {
                 var result = await LoreCli.RunAsync(
@@ -764,7 +799,7 @@ namespace LoreVcs
 
         private async void FinishMerge()
         {
-            SetBusy("Finalizando merge…");
+            SetBusy("Finishing merge…");
             try
             {
                 var resolve = await LoreCli.RunAsync("branch", "merge", "resolve");
@@ -782,7 +817,7 @@ namespace LoreVcs
                     _mergeMessage = "";
                     _conflicts.Clear();
                     _historyLoaded = false;
-                    AppendLog("Merge finalizado. Recuerda hacer Push para publicarlo.");
+                    AppendLog("Merge finished. Remember to Push to publish it.");
                 }
             }
             finally
@@ -794,7 +829,7 @@ namespace LoreVcs
 
         private async void AbortMerge()
         {
-            SetBusy("Abortando merge…");
+            SetBusy("Aborting merge…");
             try
             {
                 var result = await LoreCli.RunAsync("branch", "merge", "abort");
@@ -825,7 +860,7 @@ namespace LoreVcs
                 var line = raw.Trim();
                 if (line.IndexOf("merge", StringComparison.OrdinalIgnoreCase) >= 0)
                     inMerge = true;
-                // Conflictos: líneas tipo "C ruta" o que mencionan conflicto con una ruta.
+                // Conflicts: lines like "C path" or mentioning a conflict with a path.
                 if (line.Length > 2 && line[0] == 'C' && line[1] == ' ')
                     _conflicts.Add(line.Substring(2).Trim());
                 else if (line.IndexOf("conflict", StringComparison.OrdinalIgnoreCase) >= 0 &&
@@ -838,7 +873,7 @@ namespace LoreVcs
             Repaint();
         }
 
-        // ------------------------------------------------------------- Parsing
+        // ------------------------------------------------------------ Parsing
 
         private void ParseStatus(LoreResult result)
         {
@@ -847,7 +882,7 @@ namespace LoreVcs
             {
                 _branch = "?";
                 _revision = "?";
-                _syncState = "sin conexión";
+                _syncState = "offline";
                 AppendLog(result.Combined);
                 return;
             }
@@ -869,7 +904,7 @@ namespace LoreVcs
                 }
                 else if (trimmed.Contains("in sync with remote"))
                 {
-                    _syncState = "✓ en sync";
+                    _syncState = "✓ in sync";
                 }
                 else if (trimmed.Length > 2 && trimmed[1] == ' ' &&
                          (trimmed[0] == 'A' || trimmed[0] == 'M' || trimmed[0] == 'D'))
@@ -897,7 +932,7 @@ namespace LoreVcs
                 }
                 else if (current == null)
                 {
-                    // Texto antes de la primera revisión: ignorar.
+                    // Text before the first revision block: ignore.
                 }
                 else if (raw.StartsWith("Signature"))
                 {
@@ -930,7 +965,7 @@ namespace LoreVcs
 
         private void ParseRepoName(LoreResult result)
         {
-            // Primera línea de `lore repository info`: "crysp-development (019f5893...)"
+            // First line of `lore repository info`: "crysp-development (019f5893...)"
             if (result.Success && !string.IsNullOrWhiteSpace(result.StdOut))
             {
                 var firstLine = result.StdOut.Split('\n')[0].Trim();
@@ -941,7 +976,7 @@ namespace LoreVcs
                     return;
                 }
             }
-            // Sin conexión: usamos el nombre de la carpeta como aproximación.
+            // Offline: fall back to the folder name as an approximation.
             _repoName = System.IO.Path.GetFileName(LoreCli.ProjectRoot);
         }
 
@@ -981,8 +1016,8 @@ namespace LoreVcs
             output.IndexOf("conflict", StringComparison.OrdinalIgnoreCase) >= 0;
 
         /// <summary>
-        /// Limpia el campo de mensaje. IMGUI cachea el texto del control con foco,
-        /// así que hay que soltar el foco antes para que el TextArea se vacíe de verdad.
+        /// Clears the commit message field. IMGUI caches the focused control's
+        /// text, so focus must be released first for the TextArea to actually empty.
         /// </summary>
         private void ClearCommitMessageField()
         {
@@ -993,14 +1028,14 @@ namespace LoreVcs
         }
 
         /// <summary>
-        /// Guarda escenas y assets antes de operaciones que reescriben archivos
-        /// (sync, switch, merge). Devuelve false si el usuario cancela.
+        /// Saves scenes and assets before operations that rewrite files
+        /// (sync, switch, merge). Returns false if the user cancels.
         /// </summary>
         private bool SaveProjectBeforeVcsOperation(string operation)
         {
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
             {
-                AppendLog($"Operación cancelada: hay escenas sin guardar (ibas a {operation}).");
+                AppendLog($"Operation cancelled: there are unsaved scenes (you were about to {operation}).");
                 return false;
             }
             AssetDatabase.SaveAssets();

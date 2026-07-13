@@ -12,8 +12,8 @@ using UnityEditor;
 namespace LoreVcs
 {
     /// <summary>
-    /// Controla el proceso local de `loreserver` (si está instalado en esta máquina)
-    /// y consulta la salud del servidor del repositorio, sea local o remoto.
+    /// Controls the local `loreserver` process (when installed on this machine)
+    /// and checks the health of the repository's server, local or remote.
     /// </summary>
     public static class LoreServerController
     {
@@ -38,7 +38,7 @@ namespace LoreVcs
             set => EditorPrefs.SetString(ServerConfigPrefKey, value ?? string.Empty);
         }
 
-        /// <summary>Ruta del binario loreserver en esta máquina, o null si no está instalado.</summary>
+        /// <summary>Path of the loreserver binary on this machine, or null if not installed.</summary>
         public static string ResolveServerPath()
         {
             var configured = ConfiguredServerPath;
@@ -67,7 +67,7 @@ namespace LoreVcs
             return null;
         }
 
-        /// <summary>Directorio de configuración del servidor (--config), o null.</summary>
+        /// <summary>Server configuration directory (--config), or null.</summary>
         public static string ResolveServerConfigDir()
         {
             var configured = ConfiguredServerConfigDir;
@@ -79,7 +79,7 @@ namespace LoreVcs
             return Directory.Exists(fallback) ? fallback : null;
         }
 
-        /// <summary>Host del servidor del repo, leído de .lore/config.toml (remote_url).</summary>
+        /// <summary>Host of the repo's server, read from .lore/config.toml (remote_url).</summary>
         public static string RepoServerHost()
         {
             try
@@ -98,7 +98,7 @@ namespace LoreVcs
             }
         }
 
-        /// <summary>True si el host del repo apunta a esta misma máquina.</summary>
+        /// <summary>True when the repo's host points at this very machine.</summary>
         public static bool RepoServerIsLocal()
         {
             var host = RepoServerHost();
@@ -117,7 +117,7 @@ namespace LoreVcs
             }
         }
 
-        /// <summary>Health check HTTP contra el servidor del repo (local o remoto).</summary>
+        /// <summary>HTTP health check against the repo's server (local or remote).</summary>
         public static async Task<bool> CheckHealthAsync()
         {
             var host = RepoServerHost();
@@ -134,8 +134,8 @@ namespace LoreVcs
         }
 
         /// <summary>
-        /// IPs v4 de las interfaces de red activas de esta máquina, donde el servidor
-        /// queda expuesto (loreserver escucha en 0.0.0.0). Excluye loopback y link-local.
+        /// IPv4 addresses of this machine's active network interfaces, where the server
+        /// is exposed (loreserver listens on 0.0.0.0). Excludes loopback and link-local.
         /// </summary>
         public static List<string> GetLocalIpAddresses()
         {
@@ -162,24 +162,24 @@ namespace LoreVcs
             }
             catch
             {
-                // Sin permisos de red o plataforma rara: lista vacía.
+                // No network permissions or exotic platform: empty list.
             }
             return ips;
         }
 
         /// <summary>
-        /// Lanza loreserver desacoplado del editor (sigue vivo si Unity se cierra).
-        /// Devuelve mensaje de resultado.
+        /// Launches loreserver detached from the editor (survives Unity closing).
+        /// Returns a result message.
         /// </summary>
         public static string StartServer()
         {
             var serverPath = ResolveServerPath();
             if (serverPath == null)
-                return "loreserver no está instalado en esta máquina " +
-                       "(configura la ruta en ⚙ Ajustes si está en otro lugar).";
+                return "loreserver is not installed on this machine " +
+                       "(set its path under ⚙ Settings if it lives elsewhere).";
 
             if (IsProcessRunningLocally())
-                return "loreserver ya está corriendo.";
+                return "loreserver is already running.";
 
             var psi = new ProcessStartInfo
             {
@@ -197,23 +197,23 @@ namespace LoreVcs
             try
             {
                 var proc = Process.Start(psi);
-                return $"loreserver iniciado (PID {proc.Id})" +
-                       (configDir != null ? $" con config {configDir}" : " con config por defecto");
+                return $"loreserver started (PID {proc.Id})" +
+                       (configDir != null ? $" with config {configDir}" : " with default config");
             }
             catch (Exception ex)
             {
-                return $"No se pudo iniciar loreserver: {ex.Message}";
+                return $"Could not start loreserver: {ex.Message}";
             }
         }
 
-        /// <summary>Detiene todos los procesos loreserver locales. Devuelve mensaje.</summary>
+        /// <summary>Stops every local loreserver process. Returns a message.</summary>
         public static string StopServer()
         {
             try
             {
                 var procs = Process.GetProcessesByName("loreserver");
                 if (procs.Length == 0)
-                    return "No hay ningún loreserver corriendo en esta máquina.";
+                    return "No loreserver process is running on this machine.";
 
                 foreach (var proc in procs)
                 {
@@ -224,14 +224,14 @@ namespace LoreVcs
                     }
                     catch (Exception ex)
                     {
-                        return $"No se pudo detener el PID {proc.Id}: {ex.Message}";
+                        return $"Could not stop PID {proc.Id}: {ex.Message}";
                     }
                 }
-                return $"loreserver detenido ({procs.Length} proceso(s)).";
+                return $"loreserver stopped ({procs.Length} process(es)).";
             }
             catch (Exception ex)
             {
-                return $"Error deteniendo loreserver: {ex.Message}";
+                return $"Error stopping loreserver: {ex.Message}";
             }
         }
     }

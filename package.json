@@ -1,8 +1,8 @@
 {
   "name": "com.swordfest.lore",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "displayName": "Lore VCS",
-  "description": "Integración del sistema de control de versiones Lore (Epic Games) en el editor de Unity. Panel en Window > Lore con status, stage + commit, push, sync y manejo de branches, envolviendo el CLI de lore.",
+  "description": "Unity Editor integration for Lore, Epic Games' open source version control system. Dockable panel (Window > Lore) with status, stage + commit, push, sync, branch management, merge with conflict resolution, revision history timeline, and local server control, wrapping the lore CLI.",
   "unity": "6000.0",
   "license": "MIT",
   "documentationUrl": "https://github.com/swordfest/lore-unity#readme",

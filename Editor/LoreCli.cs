@@ -9,7 +9,7 @@ using UnityEditor;
 namespace LoreVcs
 {
     /// <summary>
-    /// Resultado de una invocación al CLI de Lore.
+    /// Result of a Lore CLI invocation.
     /// </summary>
     public struct LoreResult
     {
@@ -22,8 +22,8 @@ namespace LoreVcs
     }
 
     /// <summary>
-    /// Wrapper estático del CLI `lore`. Ejecuta comandos de forma asíncrona
-    /// con el working directory en la raíz del proyecto (donde vive .lore/).
+    /// Static wrapper around the `lore` CLI. Runs commands asynchronously
+    /// with the working directory at the project root (where .lore/ lives).
     /// </summary>
     public static class LoreCli
     {
@@ -32,7 +32,7 @@ namespace LoreVcs
         public static string ProjectRoot =>
             Path.GetDirectoryName(UnityEngine.Application.dataPath);
 
-        /// <summary>Ruta configurada manualmente (EditorPrefs), o vacía para autodetectar.</summary>
+        /// <summary>Manually configured path (EditorPrefs), or empty to auto-detect.</summary>
         public static string ConfiguredCliPath
         {
             get => EditorPrefs.GetString(CliPathPrefKey, string.Empty);
@@ -40,8 +40,8 @@ namespace LoreVcs
         }
 
         /// <summary>
-        /// Localiza el binario de lore. Unity (sobre todo en macOS) no hereda el PATH
-        /// del shell, así que probamos las rutas de instalación típicas.
+        /// Locates the lore binary. Unity (especially on macOS) does not inherit the
+        /// shell's PATH, so the typical install locations are probed.
         /// </summary>
         public static string ResolveCliPath()
         {
@@ -68,7 +68,7 @@ namespace LoreVcs
                 if (File.Exists(c))
                     return c;
             }
-            // Último recurso: confiar en el PATH.
+            // Last resort: trust the PATH.
 #if UNITY_EDITOR_WIN
             return "lore.exe";
 #else
@@ -76,7 +76,7 @@ namespace LoreVcs
 #endif
         }
 
-        /// <summary>Ejecuta `lore` con los argumentos dados, sin bloquear el hilo principal.</summary>
+        /// <summary>Runs `lore` with the given arguments without blocking the main thread.</summary>
         public static Task<LoreResult> RunAsync(params string[] args)
         {
             var cliPath = ResolveCliPath();
@@ -95,7 +95,7 @@ namespace LoreVcs
                     StandardOutputEncoding = Encoding.UTF8,
                     StandardErrorEncoding = Encoding.UTF8,
                 };
-                // Paginación desactivada para que no se quede esperando un pager.
+                // Pagination disabled so the CLI never blocks waiting for a pager.
                 psi.ArgumentList.Add("--no-pager");
                 foreach (var a in args)
                     psi.ArgumentList.Add(a);
@@ -108,12 +108,12 @@ namespace LoreVcs
                         var stderr = proc.StandardError.ReadToEnd();
                         if (!proc.WaitForExit(300000))
                         {
-                            try { proc.Kill(); } catch { /* ya terminó */ }
+                            try { proc.Kill(); } catch { /* already exited */ }
                             return new LoreResult
                             {
                                 ExitCode = -1,
                                 StdOut = stdout,
-                                StdErr = "Timeout: lore tardó más de 5 minutos.",
+                                StdErr = "Timeout: lore took longer than 5 minutes.",
                             };
                         }
                         return new LoreResult
@@ -130,8 +130,8 @@ namespace LoreVcs
                     {
                         ExitCode = -1,
                         StdOut = string.Empty,
-                        StdErr = "No se pudo ejecutar '" + cliPath + "': " + ex.Message +
-                                 "\nConfigura la ruta del CLI en la ventana de Lore (⚙ Ajustes).",
+                        StdErr = "Could not run '" + cliPath + "': " + ex.Message +
+                                 "\nSet the CLI path in the Lore window (⚙ Settings).",
                     };
                 }
             });

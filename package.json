@@ -1,0 +1,23 @@
+{
+  "name": "com.yareytech.lore",
+  "version": "1.2.0",
+  "displayName": "Lore VCS",
+  "description": "Integración del sistema de control de versiones Lore (Epic Games) en el editor de Unity. Panel en Window > Lore con status, stage + commit, push, sync y manejo de branches, envolviendo el CLI de lore.",
+  "unity": "6000.0",
+  "license": "MIT",
+  "documentationUrl": "https://github.com/swordfest/lore-unity#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/swordfest/lore-unity.git"
+  },
+  "author": {
+    "name": "Yarey Tech",
+    "email": "alexander.navarro@yareytech.com"
+  },
+  "keywords": [
+    "vcs",
+    "version-control",
+    "lore",
+    "editor"
+  ]
+}

@@ -169,7 +169,7 @@ namespace LoreVcs
         {
             EditorGUILayout.LabelField("Branches", EditorStyles.boldLabel);
             EditorGUILayout.BeginHorizontal();
-            var newIndex = EditorGUILayout.Popup(_branchIndex, _branches);
+            var newIndex = EditorGUILayout.Popup(_branchIndex, ToPopupLabels(_branches));
             if (newIndex != _branchIndex && newIndex >= 0 && newIndex < _branches.Length)
             {
                 var target = _branches[newIndex];
@@ -184,7 +184,7 @@ namespace LoreVcs
             if (_newBranchSourceIndex < 0 || _newBranchSourceIndex >= _branches.Length)
                 _newBranchSourceIndex = _branchIndex;
             _newBranchSourceIndex = EditorGUILayout.Popup(
-                "From branch", _newBranchSourceIndex, _branches);
+                "From branch", _newBranchSourceIndex, ToPopupLabels(_branches));
 
             EditorGUILayout.BeginHorizontal();
             _newBranchName = EditorGUILayout.TextField(_newBranchName);
@@ -440,7 +440,8 @@ namespace LoreVcs
             EditorGUILayout.LabelField("Merge", EditorStyles.boldLabel);
 
             _mergeSourceIndex = Mathf.Clamp(_mergeSourceIndex, 0, otherBranches.Length - 1);
-            _mergeSourceIndex = EditorGUILayout.Popup("Source branch", _mergeSourceIndex, otherBranches);
+            _mergeSourceIndex = EditorGUILayout.Popup(
+                "Source branch", _mergeSourceIndex, ToPopupLabels(otherBranches));
             var source = otherBranches[_mergeSourceIndex];
 
             EditorGUILayout.HelpBox(
@@ -965,15 +966,20 @@ namespace LoreVcs
 
         private void ParseRepoName(LoreResult result)
         {
-            // First line of `lore repository info`: "crysp-development (019f5893...)"
+            // `lore repository info` contains a line like
+            // "crysp-development (019f5893…)", but connection notices may precede
+            // it, so scan for the first line matching that shape.
             if (result.Success && !string.IsNullOrWhiteSpace(result.StdOut))
             {
-                var firstLine = result.StdOut.Split('\n')[0].Trim();
-                var idx = firstLine.IndexOf(" (", StringComparison.Ordinal);
-                if (idx > 0)
+                foreach (var raw in result.StdOut.Split('\n'))
                 {
-                    _repoName = firstLine.Substring(0, idx);
-                    return;
+                    var match = System.Text.RegularExpressions.Regex.Match(
+                        raw.Trim(), @"^(\S+) \([0-9a-f]{16,}\)$");
+                    if (match.Success)
+                    {
+                        _repoName = match.Groups[1].Value;
+                        return;
+                    }
                 }
             }
             // Offline: fall back to the folder name as an approximation.
@@ -985,16 +991,44 @@ namespace LoreVcs
             if (!result.Success) return;
 
             var names = new List<string>();
+            var inSection = false;
             foreach (var raw in result.StdOut.Split('\n'))
             {
                 var line = raw.Trim();
-                if (line.Length == 0 || line.EndsWith(":")) continue;
-                var name = line.TrimStart('*', ' ');
+                if (line.Length == 0) continue;
+
+                // Section headers: "Local branches:" / "Remote branches:".
+                if (line.EndsWith("branches:"))
+                {
+                    inSection = true;
+                    continue;
+                }
+                if (!inSection) continue;
+
+                // The CLI mixes connection notices and warnings into the output
+                // ("Reconnecting to http://…", "Warning: Could not query remote
+                // branch list"). Branch names never contain spaces or URLs.
+                var name = line.TrimStart('*', ' ').Trim();
+                if (name.Length == 0 || name.Contains(" ") || name.Contains("://"))
+                    continue;
+
                 if (!names.Contains(name)) names.Add(name);
                 if (line.StartsWith("*")) _branch = name;
             }
             _branches = names.ToArray();
             _branchIndex = Array.IndexOf(_branches, _branch);
+        }
+
+        /// <summary>
+        /// Popup labels: Unity treats "/" as a submenu separator, so branch names
+        /// like "feature/x" are displayed with a lookalike slash instead.
+        /// </summary>
+        private static string[] ToPopupLabels(string[] names)
+        {
+            var labels = new string[names.Length];
+            for (var i = 0; i < names.Length; i++)
+                labels[i] = names[i].Replace("/", " ∕ ");
+            return labels;
         }
 
         private async void RefreshServerStatus(int delaySeconds = 0)

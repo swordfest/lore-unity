@@ -5,6 +5,16 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-07-13
+
+### Fixed
+- Branch dropdowns (Branches, From branch, Source branch) no longer show CLI
+  connection notices and warnings ("Reconnecting to http://…", "Warning: Could
+  not query remote branch list") as if they were branches — parsing is now
+  scoped to the Local/Remote branches sections and rejects non-branch lines.
+- Branch names containing "/" no longer turn into popup submenus.
+- Repository name parsing now skips connection notices as well.
+
 ## [1.4.0] - 2026-07-13
 
 ### Added

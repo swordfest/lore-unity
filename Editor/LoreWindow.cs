@@ -91,11 +91,9 @@ namespace LoreVcs
             RefreshServerStatus();
         }
 
-        private void OnFocus()
-        {
-            if (!_busy) RefreshAll();
-            RefreshServerStatus();
-        }
+        // Note: no OnFocus auto-refresh — clicking the window used to re-query
+        // the CLI on every focus change. State refreshes on open, after each
+        // action, and manually via the ↻ button.
 
         private void Update()
         {

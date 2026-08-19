@@ -88,9 +88,12 @@ namespace LoreVcs
         private static string ConfigPath =>
             Path.Combine(LoreCli.ProjectRoot, ".lore", "config.toml");
 
-        // remote_url = "lore://host:port" — captures scheme, host and optional port.
+        // remote_url = "lore://host:port/path" — captures scheme, host, optional
+        // port and optional path, and consumes the closing quote so a rewrite
+        // does not leave a dangling one.
+        //   group 1 = scheme, 2 = host, 3 = port, 4 = path (with leading '/')
         private static readonly Regex RemoteUrlRegex = new Regex(
-            "remote_url\\s*=\\s*\"(lores?)://([^:/\"]+)(?::(\\d+))?");
+            "remote_url\\s*=\\s*\"(lores?)://([^:/\"]+)(?::(\\d+))?(/[^\"]*)?\"");
 
         /// <summary>Full remote_url value from .lore/config.toml, or empty if none.</summary>
         public static string RepoRemoteUrl()
@@ -161,11 +164,13 @@ namespace LoreVcs
                     return "Could not find remote_url in config.toml.";
 
                 var scheme = match.Groups[1].Value;
-                var replacement = $"remote_url = \"{scheme}://{newHost}:{newPort}\"";
+                var path = match.Groups[4].Success ? match.Groups[4].Value : "";
+                // The regex now consumes the closing quote, so add exactly one back.
+                var replacement = $"remote_url = \"{scheme}://{newHost}:{newPort}{path}\"";
                 var updated = text.Substring(0, match.Index) + replacement +
                               text.Substring(match.Index + match.Length);
                 File.WriteAllText(ConfigPath, updated);
-                return $"Server address set to {scheme}://{newHost}:{newPort}";
+                return $"Server address set to {scheme}://{newHost}:{newPort}{path}";
             }
             catch (Exception ex)
             {

@@ -5,6 +5,13 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-07-13
+
+### Fixed
+- Apply no longer corrupts `.lore/config.toml` with a doubled closing quote
+  (`...41337""`), which made the CLI fail with a TOML parse error. The
+  remote_url regex now consumes the closing quote and preserves any path.
+
 ## [1.6.0] - 2026-07-13
 
 ### Added

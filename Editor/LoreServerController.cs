@@ -20,11 +20,6 @@ namespace LoreVcs
         private const string ServerConfigPrefKey = "LoreVcs.ServerConfigDir";
 
         public const int DefaultProtocolPort = 41337;
-        // loreserver's default config exposes the HTTP health check at
-        // protocol port + 2 (41337 → 41339).
-        private const int HealthPortOffset = 2;
-
-        private static int HealthPortFor(int protocolPort) => protocolPort + HealthPortOffset;
 
         public static string ConfiguredServerPath
         {
@@ -82,89 +77,41 @@ namespace LoreVcs
         private static string ConfigPath =>
             Path.Combine(LoreCli.ProjectRoot, ".lore", "config.toml");
 
-        // remote_url = "lore://host:port/path" — captures scheme, host, optional
-        // port and optional path, and consumes the closing quote so a rewrite
-        // does not leave a dangling one.
-        //   group 1 = scheme, 2 = host, 3 = port, 4 = path (with leading '/')
-        private static readonly Regex RemoteUrlRegex = new Regex(
-            "remote_url\\s*=\\s*\"(lores?)://([^:/\"]+)(?::(\\d+))?(/[^\"]*)?\"");
-
-        /// <summary>Full remote_url value from .lore/config.toml, or empty if none.</summary>
-        public static string RepoRemoteUrl()
+        private static string ReadConfigOrEmpty()
         {
-            try
-            {
-                if (!File.Exists(ConfigPath)) return "";
-                var match = Regex.Match(File.ReadAllText(ConfigPath),
-                    "remote_url\\s*=\\s*\"([^\"]*)\"");
-                return match.Success ? match.Groups[1].Value : "";
-            }
+            try { return File.Exists(ConfigPath) ? File.ReadAllText(ConfigPath) : ""; }
             catch { return ""; }
         }
 
+        /// <summary>Full remote_url value from .lore/config.toml, or empty if none.</summary>
+        public static string RepoRemoteUrl() => LoreParse.FullRemoteUrl(ReadConfigOrEmpty());
+
         /// <summary>Host of the repo's server, read from .lore/config.toml (remote_url).</summary>
-        public static string RepoServerHost()
-        {
-            try
-            {
-                if (!File.Exists(ConfigPath)) return "127.0.0.1";
-                var match = RemoteUrlRegex.Match(File.ReadAllText(ConfigPath));
-                return match.Success ? match.Groups[2].Value : "127.0.0.1";
-            }
-            catch
-            {
-                return "127.0.0.1";
-            }
-        }
+        public static string RepoServerHost() => LoreParse.RemoteHost(ReadConfigOrEmpty());
 
         /// <summary>Port of the repo's server (defaults to 41337 if unspecified).</summary>
-        public static int RepoServerPort()
-        {
-            try
-            {
-                if (File.Exists(ConfigPath))
-                {
-                    var match = RemoteUrlRegex.Match(File.ReadAllText(ConfigPath));
-                    if (match.Success && match.Groups[3].Success &&
-                        int.TryParse(match.Groups[3].Value, out var p))
-                        return p;
-                }
-            }
-            catch { /* fall through to default */ }
-            return DefaultProtocolPort;
-        }
+        public static int RepoServerPort() =>
+            LoreParse.RemotePort(ReadConfigOrEmpty(), DefaultProtocolPort);
 
         /// <summary>
         /// Rewrites the host and port of remote_url in .lore/config.toml,
-        /// preserving the scheme. Returns a result message. The CLI and the
-        /// health check both start using the new address.
+        /// preserving scheme and path. Returns a result message. The CLI and the
+        /// reachability check both start using the new address.
         /// </summary>
         public static string SetRepoServerAddress(string newHost, int newPort)
         {
-            newHost = (newHost ?? "").Trim();
-            if (newHost.Length == 0)
-                return "Empty address; nothing changed.";
-            if (newPort <= 0 || newPort > 65535)
-                return $"Invalid port {newPort}; nothing changed.";
-
             try
             {
                 if (!File.Exists(ConfigPath))
                     return "No .lore/config.toml found — is this a Lore working tree?";
 
                 var text = File.ReadAllText(ConfigPath);
-                var match = RemoteUrlRegex.Match(text);
-                if (!match.Success)
-                    return "Could not find remote_url in config.toml.";
+                var updated = LoreParse.RewriteRemoteHostPort(text, newHost, newPort, out var message);
+                if (updated == null)
+                    return message;
 
-                var scheme = match.Groups[1].Value;
-                var path = match.Groups[4].Success ? match.Groups[4].Value : "";
-                // The regex now consumes the closing quote, so add exactly one back.
-                var replacement = $"remote_url = \"{scheme}://{newHost}:{newPort}{path}\"";
-                var updated = text.Substring(0, match.Index) + replacement +
-                              text.Substring(match.Index + match.Length);
                 File.WriteAllText(ConfigPath, updated);
-                return $"Server address set to {scheme}://{newHost}:{newPort}{path}";
+                return message;
             }
             catch (Exception ex)
             {
@@ -197,20 +144,21 @@ namespace LoreVcs
 
         /// <summary>
         /// Reachability check against an explicit host and protocol port (used by
-        /// "Test"). The HTTP health endpoint lives at protocol port + 2; we probe
-        /// it with a raw TCP connect rather than HttpClient, which is unreliable
-        /// inside the Unity editor (Mono's System.Net.Http stack).
+        /// "Test"). Probes the protocol port directly with a raw TCP connect — it
+        /// is the same port the CLI's gRPC transport uses, so no port derivation
+        /// is needed. HttpClient is avoided because it is unreliable inside the
+        /// Unity editor (Mono's System.Net.Http stack).
         /// </summary>
         public static async Task<bool> CheckHealthAsync(string host, int protocolPort)
         {
             host = (host ?? "").Trim();
-            if (host.Length == 0) return false;
-            var port = HealthPortFor(protocolPort);
+            if (host.Length == 0 || protocolPort <= 0 || protocolPort > 65535)
+                return false;
             try
             {
                 using (var client = new TcpClient())
                 {
-                    var connect = client.ConnectAsync(host, port);
+                    var connect = client.ConnectAsync(host, protocolPort);
                     var finished = await Task.WhenAny(connect, Task.Delay(3000));
                     if (finished != connect)
                         return false; // timed out

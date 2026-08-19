@@ -5,6 +5,25 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-07-13
+
+### Added
+- Automatic retry (up to 3 attempts, with backoff) when the Lore CLI reports a
+  transient QUIC/gRPC transport error, which the 0.8.4 transport hits often on
+  flaky connections. Smooths over intermittent "transport error" / "Not
+  connected to remote" failures during status, stage, commit, push and sync.
+- EditMode unit test suite (`Tests/Editor`) covering the parsing and config
+  rewrite logic, including regressions for the doubled-quote and
+  notices-as-branches bugs.
+
+### Changed
+- Reachability check (Test button and status dot) now probes the protocol port
+  directly via TCP — the same port the CLI uses — instead of deriving a health
+  port. The port you type is the port that gets tested. Fixes false "offline"
+  results caused by the previous HttpClient + port-derivation approach.
+- Parsing and config-rewrite logic extracted to a Unity-independent `LoreParse`
+  class so it can be unit-tested.
+
 ## [1.6.2] - 2026-07-13
 
 ### Fixed

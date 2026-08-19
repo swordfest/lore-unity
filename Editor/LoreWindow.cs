@@ -7,16 +7,6 @@ using UnityEngine;
 
 namespace LoreVcs
 {
-    /// <summary>A single revision entry from the history.</summary>
-    internal class LoreHistoryEntry
-    {
-        public string Revision = "";
-        public string Signature = "";
-        public string Date = "";
-        public string Committer = "";
-        public string Message = "";
-    }
-
     /// <summary>
     /// Lore VCS control panel inside the Unity editor.
     /// Window → Lore. Tabs: Work (status/commit/sync/server),
@@ -927,133 +917,33 @@ namespace LoreVcs
                 return;
             }
 
-            _syncState = "";
-            foreach (var raw in result.StdOut.Split('\n'))
-            {
-                var line = raw.TrimEnd();
-                var trimmed = line.Trim();
-
-                // "On branch main revision 3 -> 70d99113..."
-                if (trimmed.StartsWith("On branch "))
-                {
-                    var parts = trimmed.Split(' ');
-                    if (parts.Length >= 3) _branch = parts[2];
-                    var revIdx = Array.IndexOf(parts, "revision");
-                    if (revIdx >= 0 && revIdx + 1 < parts.Length)
-                        _revision = parts[revIdx + 1];
-                }
-                else if (trimmed.Contains("in sync with remote"))
-                {
-                    _syncState = "✓ in sync";
-                }
-                else if (trimmed.Length > 2 && trimmed[1] == ' ' &&
-                         (trimmed[0] == 'A' || trimmed[0] == 'M' || trimmed[0] == 'D'))
-                {
-                    _changes.Add(trimmed);
-                }
-            }
+            LoreParse.Status(result.StdOut, out _branch, out _revision,
+                out var inSync, out var changes);
+            _changes.AddRange(changes);
+            _syncState = inSync ? "✓ in sync" : "";
         }
 
         private void ParseHistory(string stdout)
         {
             _history.Clear();
             _selectedHistory = -1;
-            LoreHistoryEntry current = null;
-
-            foreach (var raw in stdout.Split('\n'))
-            {
-                if (raw.StartsWith("Revision"))
-                {
-                    if (current != null) _history.Add(current);
-                    current = new LoreHistoryEntry
-                    {
-                        Revision = AfterColon(raw),
-                    };
-                }
-                else if (current == null)
-                {
-                    // Text before the first revision block: ignore.
-                }
-                else if (raw.StartsWith("Signature"))
-                {
-                    current.Signature = AfterColon(raw);
-                }
-                else if (raw.StartsWith("Date"))
-                {
-                    current.Date = AfterColon(raw);
-                }
-                else if (raw.StartsWith("Committer"))
-                {
-                    current.Committer = AfterColon(raw);
-                }
-                else if (raw.StartsWith("    "))
-                {
-                    var msgLine = raw.Trim();
-                    current.Message = string.IsNullOrEmpty(current.Message)
-                        ? msgLine
-                        : current.Message + "\n" + msgLine;
-                }
-            }
-            if (current != null) _history.Add(current);
-        }
-
-        private static string AfterColon(string line)
-        {
-            var idx = line.IndexOf(':');
-            return idx >= 0 ? line.Substring(idx + 1).Trim() : line.Trim();
+            _history.AddRange(LoreParse.History(stdout));
         }
 
         private void ParseRepoName(LoreResult result)
         {
-            // `lore repository info` contains a line like
-            // "crysp-development (019f5893…)", but connection notices may precede
-            // it, so scan for the first line matching that shape.
-            if (result.Success && !string.IsNullOrWhiteSpace(result.StdOut))
-            {
-                foreach (var raw in result.StdOut.Split('\n'))
-                {
-                    var match = System.Text.RegularExpressions.Regex.Match(
-                        raw.Trim(), @"^(\S+) \([0-9a-f]{16,}\)$");
-                    if (match.Success)
-                    {
-                        _repoName = match.Groups[1].Value;
-                        return;
-                    }
-                }
-            }
-            // Offline: fall back to the folder name as an approximation.
-            _repoName = System.IO.Path.GetFileName(LoreCli.ProjectRoot);
+            var fallback = System.IO.Path.GetFileName(LoreCli.ProjectRoot);
+            _repoName = result.Success
+                ? LoreParse.RepoName(result.StdOut, fallback)
+                : fallback;
         }
 
         private void ParseBranches(LoreResult result)
         {
             if (!result.Success) return;
 
-            var names = new List<string>();
-            var inSection = false;
-            foreach (var raw in result.StdOut.Split('\n'))
-            {
-                var line = raw.Trim();
-                if (line.Length == 0) continue;
-
-                // Section headers: "Local branches:" / "Remote branches:".
-                if (line.EndsWith("branches:"))
-                {
-                    inSection = true;
-                    continue;
-                }
-                if (!inSection) continue;
-
-                // The CLI mixes connection notices and warnings into the output
-                // ("Reconnecting to http://…", "Warning: Could not query remote
-                // branch list"). Branch names never contain spaces or URLs.
-                var name = line.TrimStart('*', ' ').Trim();
-                if (name.Length == 0 || name.Contains(" ") || name.Contains("://"))
-                    continue;
-
-                if (!names.Contains(name)) names.Add(name);
-                if (line.StartsWith("*")) _branch = name;
-            }
+            var names = LoreParse.Branches(result.StdOut, out var current);
+            if (!string.IsNullOrEmpty(current)) _branch = current;
             _branches = names.ToArray();
             _branchIndex = Array.IndexOf(_branches, _branch);
         }

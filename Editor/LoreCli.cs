@@ -77,7 +77,29 @@ namespace LoreVcs
         }
 
         /// <summary>Runs `lore` with the given arguments without blocking the main thread.</summary>
-        public static Task<LoreResult> RunAsync(params string[] args)
+        private static bool IsTransientConnectionError(LoreResult r) =>
+            !r.Success && LoreParse.IsTransientConnectionError(r.StdErr);
+
+        /// <summary>
+        /// Runs `lore`, retrying transient connection errors (the CLI's QUIC/gRPC
+        /// transport is occasionally flaky). Retried commands here — status, list,
+        /// stage, commit, push, sync — are all safe to run again on failure.
+        /// </summary>
+        public static async Task<LoreResult> RunAsync(params string[] args)
+        {
+            const int maxAttempts = 3;
+            LoreResult result = default;
+            for (var attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                result = await RunOnceAsync(args);
+                if (!IsTransientConnectionError(result) || attempt == maxAttempts)
+                    return result;
+                await Task.Delay(700 * attempt); // brief backoff before retrying
+            }
+            return result;
+        }
+
+        private static Task<LoreResult> RunOnceAsync(string[] args)
         {
             var cliPath = ResolveCliPath();
             var workingDir = ProjectRoot;

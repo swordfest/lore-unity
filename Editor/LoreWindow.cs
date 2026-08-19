@@ -61,6 +61,8 @@ namespace LoreVcs
         private double _lastServerCheck;
         private string _repoName = "";
         private List<string> _localIps = new List<string>();
+        private string _serverHostField = "";
+        private bool _serverHostEdited;
 
         // UI
         private int _tab;
@@ -243,6 +245,29 @@ namespace LoreVcs
         private void DrawServer()
         {
             EditorGUILayout.LabelField("Server", EditorStyles.boldLabel);
+
+            // Editable server address (host of the repo's remote_url). Lets you
+            // repoint the client when the server's IP changes, and test it.
+            EditorGUILayout.BeginHorizontal();
+            var newField = EditorGUILayout.TextField("Address", _serverHostField);
+            if (newField != _serverHostField)
+            {
+                _serverHostField = newField;
+                _serverHostEdited = true;
+            }
+            using (new EditorGUI.DisabledScope(string.IsNullOrWhiteSpace(_serverHostField)))
+            {
+                if (GUILayout.Button("Test", EditorStyles.miniButton, GUILayout.Width(45)))
+                    TestServerHost(_serverHostField);
+            }
+            using (new EditorGUI.DisabledScope(
+                !_serverHostEdited || string.IsNullOrWhiteSpace(_serverHostField) ||
+                _serverHostField.Trim() == _serverHost))
+            {
+                if (GUILayout.Button("Apply", EditorStyles.miniButton, GUILayout.Width(50)))
+                    ApplyServerHost(_serverHostField);
+            }
+            EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.BeginHorizontal();
             var dot = !_serverCheckDone ? "…" : (_serverHealthy ? "●" : "○");
@@ -1036,10 +1061,50 @@ namespace LoreVcs
                 await System.Threading.Tasks.Task.Delay(delaySeconds * 1000);
 
             _serverHost = LoreServerController.RepoServerHost();
+            // Keep the input mirroring the config unless the user is editing it.
+            if (!_serverHostEdited)
+                _serverHostField = _serverHost;
             _serverHealthy = await LoreServerController.CheckHealthAsync();
             _localIps = LoreServerController.GetLocalIpAddresses();
             _serverCheckDone = true;
             Repaint();
+        }
+
+        private async void TestServerHost(string host)
+        {
+            SetBusy($"Testing {host}…");
+            try
+            {
+                var ok = await LoreServerController.CheckHealthAsync(host);
+                AppendLog(ok
+                    ? $"✓ {host}:41337 responded — server reachable."
+                    : $"✗ {host}:41337 did not respond (check the IP, network, and that the server is running).");
+            }
+            finally
+            {
+                ClearBusy();
+            }
+        }
+
+        private async void ApplyServerHost(string host)
+        {
+            SetBusy($"Setting address to {host}…");
+            try
+            {
+                var msg = LoreServerController.SetRepoServerHost(host);
+                AppendLog(msg);
+                _serverHostEdited = false;
+                var ok = await LoreServerController.CheckHealthAsync(host.Trim());
+                AppendLog(ok
+                    ? "✓ New address is reachable."
+                    : "✗ Saved, but the new address did not respond yet.");
+            }
+            finally
+            {
+                ClearBusy();
+                RefreshServerStatus();
+                RefreshAll();
+            }
         }
 
         // ------------------------------------------------------------ Helpers

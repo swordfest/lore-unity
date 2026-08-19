@@ -5,6 +5,15 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-07-13
+
+### Added
+- Server **Address** field: type the Lore server host/IP, **Test** it (health
+  check without saving) and **Apply** it. Apply rewrites the host of
+  `remote_url` in `.lore/config.toml` (preserving scheme and port), so both the
+  CLI and the health check start using the new address. Fixes the client
+  staying stuck on an old IP after the server's address changes.
+
 ## [1.4.2] - 2026-07-13
 
 ### Changed

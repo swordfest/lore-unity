@@ -79,22 +79,90 @@ namespace LoreVcs
             return Directory.Exists(fallback) ? fallback : null;
         }
 
+        private static string ConfigPath =>
+            Path.Combine(LoreCli.ProjectRoot, ".lore", "config.toml");
+
+        // remote_url = "lore://host:port" — captures scheme, host and optional port.
+        private static readonly Regex RemoteUrlRegex = new Regex(
+            "remote_url\\s*=\\s*\"(lores?)://([^:/\"]+)(?::(\\d+))?");
+
+        /// <summary>Full remote_url value from .lore/config.toml, or empty if none.</summary>
+        public static string RepoRemoteUrl()
+        {
+            try
+            {
+                if (!File.Exists(ConfigPath)) return "";
+                var match = Regex.Match(File.ReadAllText(ConfigPath),
+                    "remote_url\\s*=\\s*\"([^\"]*)\"");
+                return match.Success ? match.Groups[1].Value : "";
+            }
+            catch { return ""; }
+        }
+
         /// <summary>Host of the repo's server, read from .lore/config.toml (remote_url).</summary>
         public static string RepoServerHost()
         {
             try
             {
-                var configPath = Path.Combine(LoreCli.ProjectRoot, ".lore", "config.toml");
-                if (!File.Exists(configPath))
-                    return "127.0.0.1";
-                var text = File.ReadAllText(configPath);
-                var match = Regex.Match(text,
-                    "remote_url\\s*=\\s*\"lores?://([^:/\"]+)");
-                return match.Success ? match.Groups[1].Value : "127.0.0.1";
+                if (!File.Exists(ConfigPath)) return "127.0.0.1";
+                var match = RemoteUrlRegex.Match(File.ReadAllText(ConfigPath));
+                return match.Success ? match.Groups[2].Value : "127.0.0.1";
             }
             catch
             {
                 return "127.0.0.1";
+            }
+        }
+
+        /// <summary>Port of the repo's server (defaults to 41337 if unspecified).</summary>
+        public static int RepoServerPort()
+        {
+            try
+            {
+                if (File.Exists(ConfigPath))
+                {
+                    var match = RemoteUrlRegex.Match(File.ReadAllText(ConfigPath));
+                    if (match.Success && match.Groups[3].Success &&
+                        int.TryParse(match.Groups[3].Value, out var p))
+                        return p;
+                }
+            }
+            catch { /* fall through to default */ }
+            return 41337;
+        }
+
+        /// <summary>
+        /// Rewrites the host of remote_url in .lore/config.toml, preserving the
+        /// scheme and port. Returns a result message. Only the host changes, so
+        /// the CLI and the health check both start using the new address.
+        /// </summary>
+        public static string SetRepoServerHost(string newHost)
+        {
+            newHost = (newHost ?? "").Trim();
+            if (newHost.Length == 0)
+                return "Empty address; nothing changed.";
+
+            try
+            {
+                if (!File.Exists(ConfigPath))
+                    return "No .lore/config.toml found — is this a Lore working tree?";
+
+                var text = File.ReadAllText(ConfigPath);
+                var match = RemoteUrlRegex.Match(text);
+                if (!match.Success)
+                    return "Could not find remote_url in config.toml.";
+
+                var scheme = match.Groups[1].Value;
+                var port = match.Groups[3].Success ? ":" + match.Groups[3].Value : "";
+                var replacement = $"remote_url = \"{scheme}://{newHost}{port}\"";
+                var updated = text.Substring(0, match.Index) + replacement +
+                              text.Substring(match.Index + match.Length);
+                File.WriteAllText(ConfigPath, updated);
+                return $"Server address set to {scheme}://{newHost}{port}";
+            }
+            catch (Exception ex)
+            {
+                return $"Could not update config.toml: {ex.Message}";
             }
         }
 
@@ -117,10 +185,14 @@ namespace LoreVcs
             }
         }
 
-        /// <summary>HTTP health check against the repo's server (local or remote).</summary>
-        public static async Task<bool> CheckHealthAsync()
+        /// <summary>HTTP health check against the repo's configured server host.</summary>
+        public static Task<bool> CheckHealthAsync() => CheckHealthAsync(RepoServerHost());
+
+        /// <summary>HTTP health check against an explicit host (used by "Test").</summary>
+        public static async Task<bool> CheckHealthAsync(string host)
         {
-            var host = RepoServerHost();
+            host = (host ?? "").Trim();
+            if (host.Length == 0) return false;
             try
             {
                 var response = await Http.GetAsync(

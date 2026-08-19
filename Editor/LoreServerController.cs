@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Net.Http;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.RegularExpressions;
@@ -26,11 +25,6 @@ namespace LoreVcs
         private const int HealthPortOffset = 2;
 
         private static int HealthPortFor(int protocolPort) => protocolPort + HealthPortOffset;
-
-        private static readonly HttpClient Http = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(3),
-        };
 
         public static string ConfiguredServerPath
         {
@@ -197,23 +191,32 @@ namespace LoreVcs
             }
         }
 
-        /// <summary>HTTP health check against the repo's configured server.</summary>
+        /// <summary>Reachability check against the repo's configured server.</summary>
         public static Task<bool> CheckHealthAsync() =>
             CheckHealthAsync(RepoServerHost(), RepoServerPort());
 
         /// <summary>
-        /// HTTP health check against an explicit host and protocol port (used by
-        /// "Test"). The health endpoint lives at protocol port + 2.
+        /// Reachability check against an explicit host and protocol port (used by
+        /// "Test"). The HTTP health endpoint lives at protocol port + 2; we probe
+        /// it with a raw TCP connect rather than HttpClient, which is unreliable
+        /// inside the Unity editor (Mono's System.Net.Http stack).
         /// </summary>
         public static async Task<bool> CheckHealthAsync(string host, int protocolPort)
         {
             host = (host ?? "").Trim();
             if (host.Length == 0) return false;
+            var port = HealthPortFor(protocolPort);
             try
             {
-                var response = await Http.GetAsync(
-                    $"http://{host}:{HealthPortFor(protocolPort)}/health_check");
-                return response.IsSuccessStatusCode;
+                using (var client = new TcpClient())
+                {
+                    var connect = client.ConnectAsync(host, port);
+                    var finished = await Task.WhenAny(connect, Task.Delay(3000));
+                    if (finished != connect)
+                        return false; // timed out
+                    await connect;    // surface any connection exception
+                    return client.Connected;
+                }
             }
             catch
             {

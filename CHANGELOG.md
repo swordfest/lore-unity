@@ -5,6 +5,14 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-07-13
+
+### Added
+- Server **Port** field next to Address (defaults to 41337, the Lore protocol
+  port). Test and Apply now use it; the HTTP health check port is derived as
+  port + 2 (matching loreserver's default). Shareable addresses and the status
+  row reflect the configured port instead of a hardcoded 41337.
+
 ## [1.5.0] - 2026-07-13
 
 ### Added

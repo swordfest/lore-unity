@@ -19,7 +19,13 @@ namespace LoreVcs
     {
         private const string ServerPathPrefKey = "LoreVcs.ServerPath";
         private const string ServerConfigPrefKey = "LoreVcs.ServerConfigDir";
-        private const int HealthPort = 41339;
+
+        public const int DefaultProtocolPort = 41337;
+        // loreserver's default config exposes the HTTP health check at
+        // protocol port + 2 (41337 → 41339).
+        private const int HealthPortOffset = 2;
+
+        private static int HealthPortFor(int protocolPort) => protocolPort + HealthPortOffset;
 
         private static readonly HttpClient Http = new HttpClient
         {
@@ -128,19 +134,21 @@ namespace LoreVcs
                 }
             }
             catch { /* fall through to default */ }
-            return 41337;
+            return DefaultProtocolPort;
         }
 
         /// <summary>
-        /// Rewrites the host of remote_url in .lore/config.toml, preserving the
-        /// scheme and port. Returns a result message. Only the host changes, so
-        /// the CLI and the health check both start using the new address.
+        /// Rewrites the host and port of remote_url in .lore/config.toml,
+        /// preserving the scheme. Returns a result message. The CLI and the
+        /// health check both start using the new address.
         /// </summary>
-        public static string SetRepoServerHost(string newHost)
+        public static string SetRepoServerAddress(string newHost, int newPort)
         {
             newHost = (newHost ?? "").Trim();
             if (newHost.Length == 0)
                 return "Empty address; nothing changed.";
+            if (newPort <= 0 || newPort > 65535)
+                return $"Invalid port {newPort}; nothing changed.";
 
             try
             {
@@ -153,12 +161,11 @@ namespace LoreVcs
                     return "Could not find remote_url in config.toml.";
 
                 var scheme = match.Groups[1].Value;
-                var port = match.Groups[3].Success ? ":" + match.Groups[3].Value : "";
-                var replacement = $"remote_url = \"{scheme}://{newHost}{port}\"";
+                var replacement = $"remote_url = \"{scheme}://{newHost}:{newPort}\"";
                 var updated = text.Substring(0, match.Index) + replacement +
                               text.Substring(match.Index + match.Length);
                 File.WriteAllText(ConfigPath, updated);
-                return $"Server address set to {scheme}://{newHost}{port}";
+                return $"Server address set to {scheme}://{newHost}:{newPort}";
             }
             catch (Exception ex)
             {
@@ -185,18 +192,22 @@ namespace LoreVcs
             }
         }
 
-        /// <summary>HTTP health check against the repo's configured server host.</summary>
-        public static Task<bool> CheckHealthAsync() => CheckHealthAsync(RepoServerHost());
+        /// <summary>HTTP health check against the repo's configured server.</summary>
+        public static Task<bool> CheckHealthAsync() =>
+            CheckHealthAsync(RepoServerHost(), RepoServerPort());
 
-        /// <summary>HTTP health check against an explicit host (used by "Test").</summary>
-        public static async Task<bool> CheckHealthAsync(string host)
+        /// <summary>
+        /// HTTP health check against an explicit host and protocol port (used by
+        /// "Test"). The health endpoint lives at protocol port + 2.
+        /// </summary>
+        public static async Task<bool> CheckHealthAsync(string host, int protocolPort)
         {
             host = (host ?? "").Trim();
             if (host.Length == 0) return false;
             try
             {
                 var response = await Http.GetAsync(
-                    $"http://{host}:{HealthPort}/health_check");
+                    $"http://{host}:{HealthPortFor(protocolPort)}/health_check");
                 return response.IsSuccessStatusCode;
             }
             catch

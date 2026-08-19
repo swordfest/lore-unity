@@ -61,8 +61,10 @@ namespace LoreVcs
         private double _lastServerCheck;
         private string _repoName = "";
         private List<string> _localIps = new List<string>();
+        private int _serverPort = 41337;
         private string _serverHostField = "";
-        private bool _serverHostEdited;
+        private string _serverPortField = "41337";
+        private bool _serverAddrEdited;
 
         // UI
         private int _tab;
@@ -246,26 +248,40 @@ namespace LoreVcs
         {
             EditorGUILayout.LabelField("Server", EditorStyles.boldLabel);
 
-            // Editable server address (host of the repo's remote_url). Lets you
-            // repoint the client when the server's IP changes, and test it.
+            // Editable server address (host + port of the repo's remote_url).
+            // Lets you repoint the client when the server's IP/port changes.
             EditorGUILayout.BeginHorizontal();
-            var newField = EditorGUILayout.TextField("Address", _serverHostField);
-            if (newField != _serverHostField)
+            var newHost = EditorGUILayout.TextField("Address", _serverHostField);
+            if (newHost != _serverHostField)
             {
-                _serverHostField = newField;
-                _serverHostEdited = true;
+                _serverHostField = newHost;
+                _serverAddrEdited = true;
             }
-            using (new EditorGUI.DisabledScope(string.IsNullOrWhiteSpace(_serverHostField)))
+            GUILayout.Label(":", GUILayout.Width(8));
+            var newPort = EditorGUILayout.TextField(_serverPortField, GUILayout.Width(52));
+            if (newPort != _serverPortField)
             {
-                if (GUILayout.Button("Test", EditorStyles.miniButton, GUILayout.Width(45)))
-                    TestServerHost(_serverHostField);
+                _serverPortField = newPort;
+                _serverAddrEdited = true;
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            var portValid = int.TryParse(_serverPortField, out var typedPort) &&
+                            typedPort > 0 && typedPort <= 65535;
+            var hostValid = !string.IsNullOrWhiteSpace(_serverHostField);
+            using (new EditorGUI.DisabledScope(!hostValid || !portValid))
+            {
+                if (GUILayout.Button("Test", EditorStyles.miniButton, GUILayout.Width(50)))
+                    TestServerAddress(_serverHostField.Trim(), typedPort);
             }
             using (new EditorGUI.DisabledScope(
-                !_serverHostEdited || string.IsNullOrWhiteSpace(_serverHostField) ||
-                _serverHostField.Trim() == _serverHost))
+                !_serverAddrEdited || !hostValid || !portValid ||
+                (_serverHostField.Trim() == _serverHost && typedPort == _serverPort)))
             {
-                if (GUILayout.Button("Apply", EditorStyles.miniButton, GUILayout.Width(50)))
-                    ApplyServerHost(_serverHostField);
+                if (GUILayout.Button("Apply", EditorStyles.miniButton, GUILayout.Width(55)))
+                    ApplyServerAddress(_serverHostField.Trim(), typedPort);
             }
             EditorGUILayout.EndHorizontal();
 
@@ -277,7 +293,7 @@ namespace LoreVcs
             GUI.color = color;
             var stateText = !_serverCheckDone ? "checking…"
                 : (_serverHealthy ? "online" : "no response");
-            GUILayout.Label($"{_serverHost}:41337 — {stateText}", EditorStyles.miniLabel);
+            GUILayout.Label($"{_serverHost}:{_serverPort} — {stateText}", EditorStyles.miniLabel);
             GUILayout.FlexibleSpace();
             if (GUILayout.Button("Check", EditorStyles.miniButton, GUILayout.Width(60)))
                 RefreshServerStatus();
@@ -319,7 +335,7 @@ namespace LoreVcs
                     EditorGUILayout.LabelField("Shareable addresses:", EditorStyles.miniBoldLabel);
                     foreach (var ip in _localIps)
                     {
-                        var url = $"lore://{ip}:41337/{_repoName}";
+                        var url = $"lore://{ip}:{_serverPort}/{_repoName}";
                         EditorGUILayout.BeginHorizontal();
                         EditorGUILayout.SelectableLabel(url, EditorStyles.miniLabel,
                             GUILayout.Height(16));
@@ -1061,24 +1077,28 @@ namespace LoreVcs
                 await System.Threading.Tasks.Task.Delay(delaySeconds * 1000);
 
             _serverHost = LoreServerController.RepoServerHost();
-            // Keep the input mirroring the config unless the user is editing it.
-            if (!_serverHostEdited)
+            _serverPort = LoreServerController.RepoServerPort();
+            // Keep the inputs mirroring the config unless the user is editing them.
+            if (!_serverAddrEdited)
+            {
                 _serverHostField = _serverHost;
+                _serverPortField = _serverPort.ToString();
+            }
             _serverHealthy = await LoreServerController.CheckHealthAsync();
             _localIps = LoreServerController.GetLocalIpAddresses();
             _serverCheckDone = true;
             Repaint();
         }
 
-        private async void TestServerHost(string host)
+        private async void TestServerAddress(string host, int port)
         {
-            SetBusy($"Testing {host}…");
+            SetBusy($"Testing {host}:{port}…");
             try
             {
-                var ok = await LoreServerController.CheckHealthAsync(host);
+                var ok = await LoreServerController.CheckHealthAsync(host, port);
                 AppendLog(ok
-                    ? $"✓ {host}:41337 responded — server reachable."
-                    : $"✗ {host}:41337 did not respond (check the IP, network, and that the server is running).");
+                    ? $"✓ {host}:{port} responded — server reachable."
+                    : $"✗ {host}:{port} did not respond (check the IP/port, network, and that the server is running).");
             }
             finally
             {
@@ -1086,15 +1106,15 @@ namespace LoreVcs
             }
         }
 
-        private async void ApplyServerHost(string host)
+        private async void ApplyServerAddress(string host, int port)
         {
-            SetBusy($"Setting address to {host}…");
+            SetBusy($"Setting address to {host}:{port}…");
             try
             {
-                var msg = LoreServerController.SetRepoServerHost(host);
+                var msg = LoreServerController.SetRepoServerAddress(host, port);
                 AppendLog(msg);
-                _serverHostEdited = false;
-                var ok = await LoreServerController.CheckHealthAsync(host.Trim());
+                _serverAddrEdited = false;
+                var ok = await LoreServerController.CheckHealthAsync(host, port);
                 AppendLog(ok
                     ? "✓ New address is reachable."
                     : "✗ Saved, but the new address did not respond yet.");

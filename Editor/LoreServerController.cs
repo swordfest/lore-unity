@@ -138,38 +138,31 @@ namespace LoreVcs
             }
         }
 
+        // Reachability is tested with the real CLI transport rather than sockets:
+        // both HttpClient and TcpClient proved unreliable inside the Unity editor
+        // (Mono networking), while `lore` itself reaches the server fine.
+        private const int ReachabilityTimeoutMs = 8000;
+
         /// <summary>Reachability check against the repo's configured server.</summary>
         public static Task<bool> CheckHealthAsync() =>
             CheckHealthAsync(RepoServerHost(), RepoServerPort());
 
         /// <summary>
         /// Reachability check against an explicit host and protocol port (used by
-        /// "Test"). Probes the protocol port directly with a raw TCP connect — it
-        /// is the same port the CLI's gRPC transport uses, so no port derivation
-        /// is needed. HttpClient is avoided because it is unreliable inside the
-        /// Unity editor (Mono's System.Net.Http stack).
+        /// "Test"). Runs `lore repository list lore://host:port`, capped so a
+        /// hung/unreachable host fails in a few seconds instead of the CLI's long
+        /// internal retry. Success (exit 0) means the server answered.
         /// </summary>
         public static async Task<bool> CheckHealthAsync(string host, int protocolPort)
         {
             host = (host ?? "").Trim();
             if (host.Length == 0 || protocolPort <= 0 || protocolPort > 65535)
                 return false;
-            try
-            {
-                using (var client = new TcpClient())
-                {
-                    var connect = client.ConnectAsync(host, protocolPort);
-                    var finished = await Task.WhenAny(connect, Task.Delay(3000));
-                    if (finished != connect)
-                        return false; // timed out
-                    await connect;    // surface any connection exception
-                    return client.Connected;
-                }
-            }
-            catch
-            {
-                return false;
-            }
+
+            var url = $"lore://{host}:{protocolPort}";
+            var result = await LoreCli.RunOnceWithTimeoutAsync(
+                ReachabilityTimeoutMs, "repository", "list", url);
+            return result.Success;
         }
 
         /// <summary>

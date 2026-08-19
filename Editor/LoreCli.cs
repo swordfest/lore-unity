@@ -91,7 +91,7 @@ namespace LoreVcs
             LoreResult result = default;
             for (var attempt = 1; attempt <= maxAttempts; attempt++)
             {
-                result = await RunOnceAsync(args);
+                result = await RunOnceAsync(300000, args);
                 if (!IsTransientConnectionError(result) || attempt == maxAttempts)
                     return result;
                 await Task.Delay(700 * attempt); // brief backoff before retrying
@@ -99,7 +99,15 @@ namespace LoreVcs
             return result;
         }
 
-        private static Task<LoreResult> RunOnceAsync(string[] args)
+        /// <summary>
+        /// Single run with a custom process timeout and NO transient-error retry.
+        /// Used by the reachability check, where a hung connection must be capped
+        /// quickly rather than retried (the CLI already retries internally).
+        /// </summary>
+        public static Task<LoreResult> RunOnceWithTimeoutAsync(int timeoutMs, params string[] args) =>
+            RunOnceAsync(timeoutMs, args);
+
+        private static Task<LoreResult> RunOnceAsync(int timeoutMs, string[] args)
         {
             var cliPath = ResolveCliPath();
             var workingDir = ProjectRoot;
@@ -126,23 +134,30 @@ namespace LoreVcs
                 {
                     using (var proc = Process.Start(psi))
                     {
-                        var stdout = proc.StandardOutput.ReadToEnd();
-                        var stderr = proc.StandardError.ReadToEnd();
-                        if (!proc.WaitForExit(300000))
+                        // Read both streams asynchronously so the timeout actually
+                        // works — a blocking ReadToEnd() would wait for the process
+                        // to close its pipes, defeating WaitForExit(timeout) on a
+                        // hung connection.
+                        var outTask = proc.StandardOutput.ReadToEndAsync();
+                        var errTask = proc.StandardError.ReadToEndAsync();
+
+                        if (!proc.WaitForExit(timeoutMs))
                         {
                             try { proc.Kill(); } catch { /* already exited */ }
+                            try { proc.WaitForExit(1500); } catch { /* ignore */ }
                             return new LoreResult
                             {
                                 ExitCode = -1,
-                                StdOut = stdout,
-                                StdErr = "Timeout: lore took longer than 5 minutes.",
+                                StdOut = SafeRead(outTask),
+                                StdErr = $"Timeout: lore did not respond within {timeoutMs / 1000}s.",
                             };
                         }
+
                         return new LoreResult
                         {
                             ExitCode = proc.ExitCode,
-                            StdOut = stdout.Trim(),
-                            StdErr = stderr.Trim(),
+                            StdOut = SafeRead(outTask).Trim(),
+                            StdErr = SafeRead(errTask).Trim(),
                         };
                     }
                 }
@@ -157,6 +172,12 @@ namespace LoreVcs
                     };
                 }
             });
+        }
+
+        private static string SafeRead(Task<string> readTask)
+        {
+            try { return readTask.GetAwaiter().GetResult() ?? ""; }
+            catch { return ""; }
         }
     }
 }
